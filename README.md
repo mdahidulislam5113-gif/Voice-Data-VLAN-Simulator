@@ -20,7 +20,7 @@ An interactive 3D network simulation that demonstrates how Voice VLAN and Data V
 
 PC → IP Phone → Access Switch → Core/Distribution Switch
 
-## Technologies Used
+## Technologies Used 
 
 - HTML, CSS, JavaScript
 - Three.js
@@ -29,7 +29,7 @@ PC → IP Phone → Access Switch → Core/Distribution Switch
 
 ## Live Demo
 
-[Open Live Demo]https://mdahidulislam5113-gif.github.io/Voice-Data-VLAN-Simulator/
+[Open Live Demo](https://mdahidulislam5113-gif.github.io/Voice-Data-VLAN-Simulator/)
 
 ## How to Run Locally
 
