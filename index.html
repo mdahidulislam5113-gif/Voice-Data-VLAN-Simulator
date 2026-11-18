@@ -1,0 +1,1304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Voice & Data VLAN Packet Flow Simulator</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter & Hind Siliguri for clean Bengali + English typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Three.js & OrbitControls & CSS2DRenderer -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/renderers/CSS2DRenderer.js"></script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+        }
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #0b0f19;
+            font-family: 'Inter', 'Hind Siliguri', sans-serif;
+            color: #f8fafc;
+        }
+        #canvas-container {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+        #label-container {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 2;
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.78);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.6);
+        }
+        .device-label {
+            background: rgba(15, 23, 42, 0.88);
+            border: 1px solid rgba(56, 189, 248, 0.4);
+            padding: 4px 10px;
+            border-radius: 8px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #f1f5f9;
+            white-space: nowrap;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            transform: translate(-50%, -100%);
+            transition: opacity 0.2s;
+        }
+        .port-label {
+            background: rgba(30, 41, 59, 0.9);
+            border: 1px solid rgba(250, 204, 21, 0.5);
+            padding: 2px 7px;
+            border-radius: 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            color: #fde047;
+            white-space: nowrap;
+        }
+        .packet-badge {
+            padding: 3px 8px;
+            border-radius: 9999px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            font-weight: 700;
+            white-space: nowrap;
+            box-shadow: 0 0 15px rgba(0,0,0,0.8);
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .badge-data-untagged {
+            background: rgba(30, 58, 138, 0.92);
+            border: 1px solid #60a5fa;
+            color: #dbeafe;
+        }
+        .badge-data-tagged {
+            background: rgba(29, 78, 216, 0.95);
+            border: 1.5px solid #fbbf24;
+            color: #ffffff;
+        }
+        .badge-voice-tagged {
+            background: rgba(6, 95, 70, 0.95);
+            border: 1.5px solid #34d399;
+            color: #ecfdf5;
+        }
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        /* Cinematic Demo Overlays */
+        @keyframes pulseHighlight {
+            0%, 100% { background-color: rgba(250, 204, 21, 0.18); border-left-color: #facc15; }
+            50% { background-color: rgba(250, 204, 21, 0.38); border-left-color: #fde047; }
+        }
+        .ios-highlight-line {
+            display: block;
+            padding: 2px 6px;
+            margin: 2px -6px;
+            border-radius: 6px;
+            border-left: 3px solid #facc15;
+            animation: pulseHighlight 1.4s infinite ease-in-out;
+            color: #fef08a;
+            font-weight: 700;
+        }
+        .cinematic-vignette {
+            box-shadow: inset 0 0 120px rgba(0, 0, 0, 0.85);
+        }
+        /* Custom scrollbar for IOS modal */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 3D WebGL & CSS2D Containers -->
+    <div id="canvas-container"></div>
+    <div id="label-container"></div>
+
+    <!-- Cinematic Title Overlay (Opening & Closing Cards for Demo Video) -->
+    <div id="demo-title-overlay" class="fixed inset-0 z-30 pointer-events-none hidden items-center justify-center bg-slate-950/55 backdrop-blur-sm transition-opacity duration-500">
+        <div class="text-center px-6 py-8 max-w-3xl mx-4 rounded-3xl glass-panel border border-sky-400/30 shadow-2xl">
+            <div id="demo-title-badge" class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-500/20 border border-sky-400/40 text-sky-300 text-xs font-semibold tracking-wider uppercase mb-4">
+                <i class="fa-solid fa-cube"></i> 3D Network Architecture
+            </div>
+            <h2 id="demo-title-main" class="text-2xl sm:text-4xl font-extrabold text-white tracking-tight leading-snug">
+                Understanding Voice &amp; Data VLAN through 3D Visualization
+            </h2>
+            <p id="demo-title-sub" class="text-xs sm:text-sm text-slate-300 mt-3">
+                Access Port (Fa0/1) &bull; 802.1Q Trunking (Gi0/1) &bull; QoS CoS 5
+            </p>
+        </div>
+    </div>
+
+    <!-- Cinematic Subtitle Banner (Bottom Center during Demo Playback) -->
+    <div id="demo-subtitle-bar" class="fixed bottom-20 left-1/2 -translate-x-1/2 z-30 pointer-events-none hidden w-[92%] max-w-3xl">
+        <div class="glass-panel border border-sky-400/40 rounded-2xl px-5 py-3 text-center shadow-2xl">
+            <div class="flex items-center justify-center gap-2 text-[10px] uppercase tracking-widest text-sky-400 font-bold mb-1">
+                <span class="w-2 h-2 rounded-full bg-rose-500 animate-ping"></span>
+                <span id="demo-step-label">SCENE 1/7 &bull; OPENING</span>
+            </div>
+            <p id="demo-subtitle-text" class="text-xs sm:text-base font-semibold text-white leading-snug">
+                Understanding Voice &amp; Data VLAN through 3D Visualization
+            </p>
+        </div>
+    </div>
+
+    <!-- Top Header & Camera Presets HUD -->
+    <header class="fixed top-3 left-3 right-3 z-20 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-2 pointer-events-none">
+        <!-- Title Card + Primary Demo Sequence Button -->
+        <div class="glass-panel rounded-2xl px-3.5 py-2 pointer-events-auto flex flex-wrap items-center gap-3">
+            <div class="flex items-center gap-2.5">
+                <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-emerald-500 flex items-center justify-center text-white shadow-lg">
+                    <i class="fa-solid fa-network-wired text-base"></i>
+                </div>
+                <div>
+                    <h1 class="text-sm sm:text-base font-bold tracking-tight text-white leading-tight">
+                        3D Voice &amp; Data VLAN Simulator
+                    </h1>
+                    <p class="text-[11px] text-slate-300">
+                        Access (<span class="text-blue-400 font-semibold">Untagged</span> + <span class="text-emerald-400 font-semibold">Tagged</span>) &amp; 802.1Q Trunk
+                    </p>
+                </div>
+            </div>
+
+            <!-- Prominent Automated 68s Demo Sequence Trigger -->
+            <button onclick="toggleDemoSequence()" id="demo-seq-btn" class="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 via-sky-600 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 text-white font-bold text-xs shadow-lg shadow-sky-500/25 border border-white/20 transition cursor-pointer">
+                <i class="fa-solid fa-play" id="demo-seq-icon"></i>
+                <span id="demo-seq-label">Play Demo Sequence (68s)</span>
+                <span id="demo-timer" class="mono text-[11px] bg-black/40 px-2 py-0.5 rounded-md hidden">0:00 / 1:08</span>
+            </button>
+        </div>
+
+        <!-- Camera Preset Controls -->
+        <div class="glass-panel rounded-2xl p-1.5 pointer-events-auto flex flex-wrap items-center gap-1.5">
+            <span class="text-[11px] text-slate-400 px-2 hidden sm:inline"><i class="fa-solid fa-video mr-1"></i>Camera:</span>
+            <button onclick="setCameraView('overview')" id="cam-overview" class="cam-btn px-3 py-1.5 rounded-xl text-xs font-medium bg-sky-500/20 text-sky-300 border border-sky-400/40 hover:bg-sky-500/30 transition">
+                Overview
+            </button>
+            <button onclick="setCameraView('access')" id="cam-access" class="cam-btn px-3 py-1.5 rounded-xl text-xs font-medium text-slate-300 hover:bg-slate-800 border border-transparent transition">
+                Access Port (Fa0/1)
+            </button>
+            <button onclick="setCameraView('trunk')" id="cam-trunk" class="cam-btn px-3 py-1.5 rounded-xl text-xs font-medium text-slate-300 hover:bg-slate-800 border border-transparent transition">
+                Trunk Link (Gi0/1)
+            </button>
+        </div>
+    </header>
+
+    <!-- Live Ethernet Frame Inspector (Top-Right / Floating Card) -->
+    <aside class="fixed top-28 lg:top-20 right-3 z-10 w-[calc(100%-1.5rem)] sm:w-96 glass-panel rounded-2xl p-3.5 pointer-events-auto transition-all">
+        <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                <h2 class="text-xs font-bold uppercase tracking-wider text-slate-200">Live 802.1Q Frame Inspector</h2>
+            </div>
+            <span id="inspector-vlan-badge" class="mono text-[10px] px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700">
+                IDLE
+            </span>
+        </div>
+
+        <!-- Hop & Traffic Type Metadata Row -->
+        <div class="grid grid-cols-2 gap-1.5 mb-2 text-[11px]">
+            <div class="bg-slate-900/75 border border-slate-700/70 rounded-lg px-2.5 py-1">
+                <span class="text-slate-400 text-[9px] block uppercase">Traffic Type</span>
+                <span id="inspector-traffic-type" class="font-semibold text-slate-200">Waiting for Packet...</span>
+            </div>
+            <div class="bg-slate-900/75 border border-slate-700/70 rounded-lg px-2.5 py-1">
+                <span class="text-slate-400 text-[9px] block uppercase">Current Hop</span>
+                <span id="inspector-current-hop" class="font-semibold text-sky-300 truncate block">—</span>
+            </div>
+        </div>
+
+        <!-- Visual Ethernet Frame Breakdown -->
+        <div class="grid grid-cols-12 gap-1 text-center mono text-[10px] mb-2.5">
+            <div class="col-span-2 bg-slate-800/90 border border-slate-600 rounded-lg py-1.5 px-1">
+                <div class="text-slate-400 text-[8px]">DST MAC</div>
+                <div class="text-slate-200 font-semibold truncate">00:1A..</div>
+            </div>
+            <div class="col-span-2 bg-slate-800/90 border border-slate-600 rounded-lg py-1.5 px-1">
+                <div class="text-slate-400 text-[8px]">SRC MAC</div>
+                <div class="text-slate-200 font-semibold truncate" id="frame-src">HOST</div>
+            </div>
+            <!-- 802.1Q Tag Slot (Dynamic) -->
+            <div id="frame-tag-box" class="col-span-4 bg-slate-900/60 border border-dashed border-slate-600 rounded-lg py-1.5 px-1 transition-all duration-300">
+                <div class="text-slate-500 text-[8px]" id="frame-tag-title">NO 802.1Q TAG</div>
+                <div class="text-slate-400 font-bold truncate" id="frame-tag-value">UNTAGGED</div>
+            </div>
+            <div class="col-span-2 bg-slate-800/90 border border-slate-600 rounded-lg py-1.5 px-1">
+                <div class="text-slate-400 text-[8px]">TYPE</div>
+                <div class="text-slate-200 font-semibold">0x0800</div>
+            </div>
+            <div class="col-span-2 bg-slate-800/90 border border-slate-600 rounded-lg py-1.5 px-1">
+                <div class="text-slate-400 text-[8px]">PAYLOAD</div>
+                <div class="text-slate-200 font-semibold" id="frame-payload">DATA</div>
+            </div>
+        </div>
+
+        <!-- Real-time Bilingual Status Explanation -->
+        <div id="inspector-status" class="bg-slate-900/80 border border-slate-700/80 rounded-xl p-2.5 text-xs text-slate-200 leading-relaxed">
+            নিচের বাটনে ক্লিক করে <span class="text-blue-400 font-semibold">Data Packet</span> বা <span class="text-emerald-400 font-semibold">Voice Packet</span> পাঠান এবং দেখুন কীভাবে পোর্ট অনুযায়ী 802.1Q ট্যাগ যুক্ত হয়।
+        </div>
+    </aside>
+
+    <!-- Bottom Controls Bar -->
+    <footer class="fixed bottom-3 left-3 right-3 z-10 flex flex-col items-center pointer-events-none">
+        <div class="glass-panel rounded-2xl p-2.5 pointer-events-auto flex flex-wrap items-center justify-center gap-2 max-w-4xl w-full sm:w-auto">
+            <!-- Send Data Packet -->
+            <button onclick="spawnPacket('data')" class="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-95 text-white font-semibold text-xs sm:text-sm shadow-lg shadow-blue-600/30 transition cursor-pointer">
+                <i class="fa-solid fa-desktop"></i>
+                <span>Send Data (VLAN 10)</span>
+            </button>
+
+            <!-- Send Voice Packet -->
+            <button onclick="spawnPacket('voice')" class="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-white font-semibold text-xs sm:text-sm shadow-lg shadow-emerald-600/30 transition cursor-pointer">
+                <i class="fa-solid fa-phone-volume"></i>
+                <span>Send Voice (VLAN 20)</span>
+            </button>
+
+            <!-- Send Both (Simultaneous QoS Demo) -->
+            <button onclick="spawnBoth()" class="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 active:scale-95 text-white font-semibold text-xs sm:text-sm shadow-lg shadow-orange-500/30 transition cursor-pointer">
+                <i class="fa-solid fa-bolt"></i>
+                <span>Send Both (QoS Demo)</span>
+            </button>
+
+            <!-- Auto Loop Toggle -->
+            <button onclick="toggleAutoLoop()" id="auto-loop-btn" class="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 font-medium text-xs sm:text-sm transition cursor-pointer">
+                <i class="fa-solid fa-repeat" id="auto-loop-icon"></i>
+                <span>Auto Loop: OFF</span>
+            </button>
+
+            <!-- Cisco IOS Config Modal Button -->
+            <button onclick="toggleConfigModal(true)" class="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-sky-500/40 text-sky-300 font-medium text-xs sm:text-sm transition cursor-pointer">
+                <i class="fa-solid fa-terminal"></i>
+                <span class="hidden sm:inline">Cisco IOS Config</span>
+                <span class="sm:hidden">IOS</span>
+            </button>
+        </div>
+    </footer>
+
+    <!-- Cisco IOS Configuration Modal -->
+    <div id="ios-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+        <div class="glass-panel border border-slate-600 rounded-2xl max-w-2xl w-full p-5 shadow-2xl">
+            <div class="flex items-center justify-between border-b border-slate-700 pb-3 mb-3">
+                <div class="flex items-center gap-2.5">
+                    <i class="fa-solid fa-terminal text-sky-400"></i>
+                    <h3 class="font-bold text-base text-white">Cisco Switch Port Configuration (IOS)</h3>
+                </div>
+                <button onclick="toggleConfigModal(false)" class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <p class="text-xs text-slate-300 mb-3">
+                নিচের কনফিগারেশনের মাধ্যমে <strong>Fa0/1</strong> পোর্টটি একইসাথে PC-এর <strong>Untagged Data (VLAN 10)</strong> এবং IP Phone-এর <strong>802.1Q Tagged Voice (VLAN 20)</strong> গ্রহণ করে এবং <strong>Gi0/1 Trunk</strong> দিয়ে উভয় VLAN পাস করে:
+            </p>
+            <div class="relative bg-slate-950 border border-slate-800 rounded-xl p-4 mono text-xs text-emerald-300 overflow-x-auto leading-relaxed">
+                <button onclick="copyIOSConfig()" id="copy-btn" class="absolute top-2.5 right-2.5 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] border border-slate-600 transition">
+                    <i class="fa-regular fa-copy mr-1"></i>Copy
+                </button>
+<pre id="ios-code">! 1. Create Data &amp; Voice VLANs
+Switch1(config)# vlan 10
+Switch1(config-vlan)# name DATA_VLAN
+Switch1(config-vlan)# vlan 20
+Switch1(config-vlan)# name VOICE_VLAN
+
+! 2. Configure Multi-VLAN Access Port (Connected to IP Phone + PC)
+Switch1(config)# interface FastEthernet0/1
+Switch1(config-if)# switchport mode access
+<span id="ios-line-access">Switch1(config-if)# switchport access vlan 10      ! PC Traffic (Untagged)</span>
+<span id="ios-line-voice">Switch1(config-if)# switchport voice vlan 20       ! IP Phone Traffic (802.1Q Tagged)</span>
+Switch1(config-if)# mls qos trust cos              ! Prioritize Voice CoS 5
+
+! 3. Configure 802.1Q Trunk Port (Switch 1 &lt;---&gt; Switch 2)
+Switch1(config)# interface GigabitEthernet0/1
+Switch1(config-if)# switchport mode trunk
+Switch1(config-if)# switchport trunk allowed vlan 10,20</pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * 3D Voice & Data VLAN Live Network Simulation
+         * Built with Three.js, OrbitControls, and CSS2DRenderer
+         */
+
+        let scene, camera, renderer, labelRenderer, controls;
+        let clock = new THREE.Clock();
+        let activePackets = [];
+        let pulseRings = [];
+        let switchLeds = [];
+        let autoLoopInterval = null;
+        let isAutoLoop = false;
+
+        // Automated 68-Second Demo Sequence State
+        let isDemoRunning = false;
+        let demoStartTime = 0;
+        let demoTriggeredEvents = new Set();
+        const DEMO_TOTAL_SECONDS = 68;
+
+        // Camera target animation state
+        let targetCamPos = new THREE.Vector3(0, 7.5, 13.5);
+        let targetLookAt = new THREE.Vector3(0, 0.8, 0);
+        let isCameraTransitioning = false;
+
+        // Key 3D Coordinates for Topology Nodes & Ports
+        const NODES = {
+            pc: { x: -7.5, y: 0, z: 1.2 },
+            phone: { x: -3.5, y: 0, z: 0.2 },
+            sw1: { x: 1.5, y: 0, z: 0 },
+            sw2: { x: 7.5, y: 0, z: 0 }
+        };
+
+        // Cable Connection Endpoints (Exact Port Coordinates)
+        const PORTS = {
+            pcNic: new THREE.Vector3(-6.7, 0.55, 1.2),
+            phonePcPort: new THREE.Vector3(-4.15, 0.35, 0.35),
+            phoneSwPort: new THREE.Vector3(-2.85, 0.35, 0.1),
+            sw1Fa01: new THREE.Vector3(0.3, 0.48, 0.55),   // Access Port Fa0/1
+            sw1Gi01: new THREE.Vector3(2.7, 0.48, 0.0),    // Trunk Port Gi0/1
+            sw2Gi01: new THREE.Vector3(6.3, 0.48, 0.0)     // Trunk Port Gi0/1
+        };
+
+        // Curves for Packet Paths
+        let curvePcToPhone, curvePhoneToSw1, curveSw1ToSw2;
+
+        function init() {
+            const container = document.getElementById('canvas-container');
+            const labelContainer = document.getElementById('label-container');
+
+            // 1. Scene Setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0b0f19);
+            scene.fog = new THREE.FogExp2(0x0b0f19, 0.028);
+
+            // 2. Camera Setup
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+            camera.position.copy(targetCamPos);
+
+            // 3. WebGL Renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            // 4. CSS2D Renderer for crisp floating HTML labels
+            labelRenderer = new THREE.CSS2DRenderer();
+            labelRenderer.setSize(window.innerWidth, window.innerHeight);
+            labelContainer.appendChild(labelRenderer.domElement);
+
+            // 5. OrbitControls
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.06;
+            controls.maxPolarAngle = Math.PI / 2 - 0.04; // Prevent going below floor
+            controls.minDistance = 4;
+            controls.maxDistance = 26;
+            controls.target.copy(targetLookAt);
+
+            controls.addEventListener('start', () => {
+                isCameraTransitioning = false;
+            });
+
+            // 6. Lighting
+            setupLights();
+
+            // 7. Environment Grid Floor
+            createFloor();
+
+            // 8. Build 3D Network Hardware Models
+            buildPC(NODES.pc.x, NODES.pc.y, NODES.pc.z);
+            buildIPPhone(NODES.phone.x, NODES.phone.y, NODES.phone.z);
+            buildSwitch(NODES.sw1.x, NODES.sw1.y, NODES.sw1.z, "Switch 1 (Access)", true);
+            buildSwitch(NODES.sw2.x, NODES.sw2.y, NODES.sw2.z, "Switch 2 (Core/Dist)", false);
+
+            // 9. Build 3D Ethernet Cables & Port Labels
+            buildCables();
+
+            // 10. Event Listeners
+            window.addEventListener('resize', onWindowResize);
+
+            // Launch initial welcome packet after short delay
+            setTimeout(() => {
+                spawnBoth();
+            }, 800);
+
+            animate();
+        }
+
+        function setupLights() {
+            const ambient = new THREE.AmbientLight(0x94a3b8, 0.7);
+            scene.add(ambient);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1.1);
+            dirLight.position.set(8, 16, 10);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 2048;
+            dirLight.shadow.mapSize.height = 2048;
+            scene.add(dirLight);
+
+            // Accent point lights
+            const blueGlow = new THREE.PointLight(0x3b82f6, 1.2, 12);
+            blueGlow.position.set(-6, 3, 2);
+            scene.add(blueGlow);
+
+            const emeraldGlow = new THREE.PointLight(0x10b981, 1.2, 12);
+            emeraldGlow.position.set(2, 3, 2);
+            scene.add(emeraldGlow);
+        }
+
+        function createFloor() {
+            // Subtle reflective dark plane
+            const planeGeo = new THREE.PlaneGeometry(60, 60);
+            const planeMat = new THREE.MeshStandardMaterial({
+                color: 0x0b0f19,
+                roughness: 0.8,
+                metalness: 0.2
+            });
+            const plane = new THREE.Mesh(planeGeo, planeMat);
+            plane.rotation.x = -Math.PI / 2;
+            plane.receiveShadow = true;
+            scene.add(plane);
+
+            // Neon cyber grid
+            const grid = new THREE.GridHelper(44, 44, 0x1e293b, 0x131c31);
+            grid.position.y = 0.01;
+            scene.add(grid);
+        }
+
+        function createLabel(text, className, position) {
+            const div = document.createElement('div');
+            div.className = className;
+            div.innerHTML = text;
+            const label = new THREE.CSS2DObject(div);
+            label.position.copy(position);
+            scene.add(label);
+            return label;
+        }
+
+        // Build 3D Desktop PC (VLAN 10 - Data)
+        function buildPC(x, y, z) {
+            const group = new THREE.Group();
+            group.position.set(x, y, z);
+
+            // PC Tower Case
+            const towerGeo = new THREE.BoxGeometry(0.9, 1.8, 1.6);
+            const towerMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.4, metalness: 0.6 });
+            const tower = new THREE.Mesh(towerGeo, towerMat);
+            tower.position.set(-0.4, 0.9, 0);
+            tower.castShadow = true;
+            group.add(tower);
+
+            // Glowing Blue LED Strip on PC Tower
+            const stripGeo = new THREE.BoxGeometry(0.05, 1.5, 0.08);
+            const stripMat = new THREE.MeshBasicMaterial({ color: 0x3b82f6 });
+            const strip = new THREE.Mesh(stripGeo, stripMat);
+            strip.position.set(0.06, 0.9, 0.72);
+            group.add(strip);
+
+            // Monitor Stand & Screen
+            const stand = new THREE.Mesh(
+                new THREE.BoxGeometry(0.2, 0.6, 0.2),
+                new THREE.MeshStandardMaterial({ color: 0x334155 })
+            );
+            stand.position.set(0.55, 0.3, -0.2);
+            group.add(stand);
+
+            const monitorFrame = new THREE.Mesh(
+                new THREE.BoxGeometry(1.4, 0.95, 0.1),
+                new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.3 })
+            );
+            monitorFrame.position.set(0.55, 1.0, -0.2);
+            monitorFrame.rotation.y = 0.25;
+            monitorFrame.castShadow = true;
+            group.add(monitorFrame);
+
+            const screen = new THREE.Mesh(
+                new THREE.PlaneGeometry(1.28, 0.82),
+                new THREE.MeshBasicMaterial({ color: 0x1d4ed8 })
+            );
+            screen.position.set(0.56, 1.0, -0.14);
+            screen.rotation.y = 0.25;
+            group.add(screen);
+
+            scene.add(group);
+
+            createLabel(
+                `<i class="fa-solid fa-desktop text-blue-400 mr-1"></i> PC Workstation<br><span class="text-[9px] text-blue-300">Data VLAN 10 (Untagged)</span>`,
+                'device-label',
+                new THREE.Vector3(x, 2.2, z)
+            );
+        }
+
+        // Build 3D IP Phone (2-port built-in switch: PC port + SW port)
+        function buildIPPhone(x, y, z) {
+            const group = new THREE.Group();
+            group.position.set(x, y, z);
+
+            // Sloped Phone Base
+            const baseGeo = new THREE.BoxGeometry(1.3, 0.42, 1.1);
+            const baseMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.35, metalness: 0.5 });
+            const base = new THREE.Mesh(baseGeo, baseMat);
+            base.position.y = 0.21;
+            base.castShadow = true;
+            group.add(base);
+
+            // IP Phone LCD Screen (Emerald glow)
+            const lcd = new THREE.Mesh(
+                new THREE.PlaneGeometry(0.65, 0.42),
+                new THREE.MeshBasicMaterial({ color: 0x10b981 })
+            );
+            lcd.position.set(0.18, 0.44, 0.05);
+            lcd.rotation.x = -Math.PI / 2.6;
+            group.add(lcd);
+
+            // Handset
+            const handset = new THREE.Mesh(
+                new THREE.BoxGeometry(0.28, 0.22, 0.95),
+                new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.3 })
+            );
+            handset.position.set(-0.35, 0.48, 0);
+            handset.castShadow = true;
+            group.add(handset);
+
+            // Port Highlights on Phone (PC Port & SW Port)
+            const pcPortMesh = new THREE.Mesh(
+                new THREE.BoxGeometry(0.14, 0.14, 0.14),
+                new THREE.MeshBasicMaterial({ color: 0x3b82f6 })
+            );
+            pcPortMesh.position.set(-0.65, 0.25, 0.35);
+            group.add(pcPortMesh);
+
+            const swPortMesh = new THREE.Mesh(
+                new THREE.BoxGeometry(0.14, 0.14, 0.14),
+                new THREE.MeshBasicMaterial({ color: 0x10b981 })
+            );
+            swPortMesh.position.set(0.65, 0.25, 0.1);
+            group.add(swPortMesh);
+
+            scene.add(group);
+
+            createLabel(
+                `<i class="fa-solid fa-phone text-emerald-400 mr-1"></i> Cisco IP Phone<br><span class="text-[9px] text-emerald-300">Voice VLAN 20 (802.1Q Tagged)</span>`,
+                'device-label',
+                new THREE.Vector3(x, 1.35, z)
+            );
+        }
+
+        // Build 3D Enterprise Switch (Switch 1 & Switch 2)
+        function buildSwitch(x, y, z, title, isAccessSwitch) {
+            const group = new THREE.Group();
+            group.position.set(x, y, z);
+
+            // 1U Rackmount Chassis
+            const chassisGeo = new THREE.BoxGeometry(2.4, 0.65, 1.6);
+            const chassisMat = new THREE.MeshStandardMaterial({
+                color: 0x1e293b,
+                roughness: 0.3,
+                metalness: 0.75
+            });
+            const chassis = new THREE.Mesh(chassisGeo, chassisMat);
+            chassis.position.y = 0.35;
+            chassis.castShadow = true;
+            group.add(chassis);
+
+            // Top glowing accent trim
+            const trimMat = new THREE.MeshBasicMaterial({
+                color: isAccessSwitch ? 0x0ea5e9 : 0x8b5cf6
+            });
+            const trim = new THREE.Mesh(new THREE.BoxGeometry(2.42, 0.04, 1.62), trimMat);
+            trim.position.y = 0.68;
+            group.add(trim);
+
+            // RJ45 Port Bank on Front/Side
+            for (let i = 0; i < 8; i++) {
+                const port = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.16, 0.14, 0.1),
+                    new THREE.MeshStandardMaterial({ color: 0x090d16 })
+                );
+                port.position.set(-0.85 + i * 0.24, 0.35, 0.81);
+                group.add(port);
+
+                // Blinking Status LED above each port
+                const ledMat = new THREE.MeshBasicMaterial({ color: i % 2 === 0 ? 0x22c55e : 0x38bdf8 });
+                const led = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.04, 0.04), ledMat);
+                led.position.set(-0.85 + i * 0.24, 0.47, 0.81);
+                group.add(led);
+                switchLeds.push(led);
+            }
+
+            // Highlighted Active Ports
+            if (isAccessSwitch) {
+                // Left side Fa0/1 Multi-VLAN Access Port
+                const faPort = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.15, 0.22, 0.22),
+                    new THREE.MeshBasicMaterial({ color: 0xfacc15 })
+                );
+                faPort.position.set(-1.2, 0.45, 0.55);
+                group.add(faPort);
+
+                // Right side Gi0/1 Trunk Port
+                const giPort = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.15, 0.22, 0.22),
+                    new THREE.MeshBasicMaterial({ color: 0xf43f5e })
+                );
+                giPort.position.set(1.2, 0.45, 0.0);
+                group.add(giPort);
+            } else {
+                // Left side Gi0/1 Trunk Port on Switch 2
+                const giPort2 = new THREE.Mesh(
+                    new THREE.BoxGeometry(0.15, 0.22, 0.22),
+                    new THREE.MeshBasicMaterial({ color: 0xf43f5e })
+                );
+                giPort2.position.set(-1.2, 0.45, 0.0);
+                group.add(giPort2);
+            }
+
+            scene.add(group);
+
+            createLabel(
+                `<i class="fa-solid fa-server text-sky-400 mr-1"></i> ${title}`,
+                'device-label',
+                new THREE.Vector3(x, 1.35, z)
+            );
+        }
+
+        // Build 3D Curved Ethernet Cables & Port Labels
+        function buildCables() {
+            // 1. PC -> IP Phone (Data only, Untagged)
+            curvePcToPhone = new THREE.CatmullRomCurve3([
+                PORTS.pcNic,
+                new THREE.Vector3(-5.5, 0.12, 1.0),
+                PORTS.phonePcPort
+            ]);
+            createTubeCable(curvePcToPhone, 0x3b82f6, 0.045);
+
+            // 2. IP Phone -> Switch 1 Fa0/1 (Multi-VLAN Access Link: Untagged Data + Tagged Voice)
+            curvePhoneToSw1 = new THREE.CatmullRomCurve3([
+                PORTS.phoneSwPort,
+                new THREE.Vector3(-1.3, 0.14, 0.4),
+                PORTS.sw1Fa01
+            ]);
+            createTubeCable(curvePhoneToSw1, 0xfacc15, 0.055);
+
+            // 3. Switch 1 Gi0/1 -> Switch 2 Gi0/1 (802.1Q Trunk Link: Both Tagged)
+            curveSw1ToSw2 = new THREE.CatmullRomCurve3([
+                PORTS.sw1Gi01,
+                new THREE.Vector3(4.5, 0.18, 0.0),
+                PORTS.sw2Gi01
+            ]);
+            createTubeCable(curveSw1ToSw2, 0xf43f5e, 0.065);
+
+            // Port & Link Floating Badges
+            createLabel(
+                `Fa0/1 (Access Port)<br><span class="text-[8px] text-slate-200">Data: Untagged | Voice: Tagged</span>`,
+                'port-label',
+                new THREE.Vector3(-0.9, 0.95, 0.6)
+            );
+
+            createLabel(
+                `Gi0/1 ↔ Gi0/1 (802.1Q Trunk)<br><span class="text-[8px] text-rose-200">VLAN 10 & VLAN 20 Both Tagged</span>`,
+                'port-label',
+                new THREE.Vector3(4.5, 0.95, 0)
+            );
+        }
+
+        function createTubeCable(curve, colorHex, radius) {
+            const geo = new THREE.TubeGeometry(curve, 36, radius, 10, false);
+            const mat = new THREE.MeshStandardMaterial({
+                color: colorHex,
+                emissive: colorHex,
+                emissiveIntensity: 0.35,
+                roughness: 0.3
+            });
+            const mesh = new THREE.Mesh(geo, mat);
+            scene.add(mesh);
+        }
+
+        // Visual Ring Pulse when Switch 1 tags/processes a packet
+        function createPulseEffect(pos, colorHex) {
+            const ringGeo = new THREE.RingGeometry(0.15, 0.28, 32);
+            const ringMat = new THREE.MeshBasicMaterial({
+                color: colorHex,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.9
+            });
+            const ring = new THREE.Mesh(ringGeo, ringMat);
+            ring.position.copy(pos);
+            ring.position.y += 0.35;
+            ring.rotation.x = -Math.PI / 2;
+            scene.add(ring);
+            pulseRings.push({ mesh: ring, age: 0 });
+        }
+
+        // Spawn Animated 3D Packet ('data' or 'voice')
+        function spawnPacket(type) {
+            const packetGroup = new THREE.Group();
+
+            // Main Packet Core Mesh
+            const isVoice = type === 'voice';
+            const coreGeo = isVoice
+                ? new THREE.OctahedronGeometry(0.24, 1)
+                : new THREE.BoxGeometry(0.36, 0.24, 0.24);
+            const coreMat = new THREE.MeshStandardMaterial({
+                color: isVoice ? 0x10b981 : 0x3b82f6,
+                emissive: isVoice ? 0x10b981 : 0x2563eb,
+                emissiveIntensity: 0.8,
+                roughness: 0.2
+            });
+            const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+            packetGroup.add(coreMesh);
+
+            // 802.1Q Tag Attachment Block (Glowing Gold/Emerald Ring/Box attached to frame)
+            const tagGeo = new THREE.BoxGeometry(0.18, 0.3, 0.3);
+            const tagMat = new THREE.MeshBasicMaterial({
+                color: isVoice ? 0x34d399 : 0xfbbf24
+            });
+            const tagMesh = new THREE.Mesh(tagGeo, tagMat);
+            tagMesh.position.set(0.24, 0, 0);
+            tagMesh.visible = isVoice; // Voice starts tagged at IP Phone; Data starts untagged at PC!
+            packetGroup.add(tagMesh);
+
+            scene.add(packetGroup);
+
+            // Floating HTML Badge attached to Packet
+            const badgeDiv = document.createElement('div');
+            badgeDiv.className = isVoice
+                ? 'packet-badge badge-voice-tagged'
+                : 'packet-badge badge-data-untagged';
+            badgeDiv.innerHTML = isVoice
+                ? `<i class="fa-solid fa-tag"></i> 802.1Q: VLAN 20 (CoS 5)`
+                : `UNTAGGED (Data VLAN 10)`;
+
+            const badgeObj = new THREE.CSS2DObject(badgeDiv);
+            badgeObj.position.set(0, 0.55, 0);
+            packetGroup.add(badgeObj);
+
+            const packetState = {
+                type,
+                group: packetGroup,
+                coreMesh,
+                tagMesh,
+                badgeDiv,
+                stage: isVoice ? 1 : 0, // 0: PC->Phone, 1: Phone->Sw1(Access), 2: Sw1->Sw2(Trunk)
+                progress: 0,
+                speed: isVoice ? 0.68 : 0.48, // Voice moves faster due to QoS priority (CoS 5)
+                tagged: isVoice
+            };
+
+            activePackets.push(packetState);
+            updateInspector(packetState);
+        }
+
+        function spawnBoth() {
+            spawnPacket('data');
+            setTimeout(() => spawnPacket('voice'), 180);
+        }
+
+        function toggleAutoLoop() {
+            isAutoLoop = !isAutoLoop;
+            const btn = document.getElementById('auto-loop-btn');
+            const icon = document.getElementById('auto-loop-icon');
+            if (isAutoLoop) {
+                btn.classList.add('border-emerald-400', 'text-emerald-300', 'bg-emerald-950/50');
+                btn.querySelector('span').textContent = 'Auto Loop: ON';
+                icon.classList.add('fa-spin');
+                spawnBoth();
+                autoLoopInterval = setInterval(spawnBoth, 4200);
+            } else {
+                btn.classList.remove('border-emerald-400', 'text-emerald-300', 'bg-emerald-950/50');
+                btn.querySelector('span').textContent = 'Auto Loop: OFF';
+                icon.classList.remove('fa-spin');
+                clearInterval(autoLoopInterval);
+            }
+        }
+
+        // Update Live 802.1Q Frame Inspector UI
+        function updateInspector(pkt) {
+            const vlanBadge = document.getElementById('inspector-vlan-badge');
+            const trafficTypeEl = document.getElementById('inspector-traffic-type');
+            const currentHopEl = document.getElementById('inspector-current-hop');
+            const frameSrc = document.getElementById('frame-src');
+            const tagBox = document.getElementById('frame-tag-box');
+            const tagTitle = document.getElementById('frame-tag-title');
+            const tagValue = document.getElementById('frame-tag-value');
+            const payload = document.getElementById('frame-payload');
+            const statusText = document.getElementById('inspector-status');
+
+            if (pkt.type === 'data') {
+                vlanBadge.textContent = 'VLAN 10 (DATA)';
+                vlanBadge.className = 'mono text-[10px] px-2 py-0.5 rounded-md bg-blue-950 text-blue-300 border border-blue-500/50';
+                trafficTypeEl.innerHTML = `<span class="text-blue-400">Data Traffic (VLAN 10)</span>`;
+                frameSrc.textContent = 'PC-MAC';
+                payload.textContent = 'HTTP/TCP';
+
+                if (!pkt.tagged) {
+                    tagBox.className = 'col-span-4 bg-amber-500/15 border border-dashed border-amber-400/80 rounded-lg py-1.5 px-1 transition-all';
+                    tagTitle.textContent = 'NO 802.1Q HEADER';
+                    tagTitle.className = 'text-amber-300 text-[8px]';
+                    tagValue.textContent = 'UNTAGGED (Access)';
+                    tagValue.className = 'text-amber-200 font-bold truncate';
+
+                    if (pkt.stage === 0) {
+                        currentHopEl.textContent = 'PC → IP Phone (PC Port)';
+                        statusText.innerHTML = `<span class="text-blue-400 font-bold">১. PC → IP Phone:</span> পিসি থেকে সাধারণ <strong>Untagged</strong> ইথারনেট ফ্রেম বের হয়ে আইপি ফোনের পিসি পোর্টে ঢুকছে।`;
+                    } else {
+                        currentHopEl.textContent = 'Access Port (Fa0/1)';
+                        statusText.innerHTML = `<span class="text-blue-400 font-bold">২. IP Phone → Switch 1 (Fa0/1 Access):</span> আইপি ফোন পিসির ডেটাকে কোনো ট্যাগ ছাড়াই (<strong>Untagged</strong>) সুইচের Access Port-এ পাঠিয়ে দিচ্ছে।`;
+                    }
+                } else {
+                    currentHopEl.textContent = 'Trunk Link (Gi0/1)';
+                    tagBox.className = 'col-span-4 bg-blue-500/25 border border-blue-400 rounded-lg py-1.5 px-1 transition-all';
+                    tagTitle.textContent = 'TPID: 0x8100 (TAGGED)';
+                    tagTitle.className = 'text-blue-300 text-[8px]';
+                    tagValue.textContent = 'VID: 10 | CoS: 0';
+                    tagValue.className = 'text-white font-bold truncate';
+
+                    statusText.innerHTML = `<span class="text-amber-400 font-bold">৩. Switch 1 → Switch 2 (Gi0/1 Trunk):</span> সুইচ-১ পিসি'র ফ্রেমটি <code>Access VLAN 10</code>-এ রিসিভ করে এতে <strong>802.1Q Tag (VLAN 10)</strong> যুক্ত করেছে এবং Trunk পোর্ট দিয়ে পাঠাচ্ছে।`;
+                }
+            } else {
+                vlanBadge.textContent = 'VLAN 20 (VOICE)';
+                vlanBadge.className = 'mono text-[10px] px-2 py-0.5 rounded-md bg-emerald-950 text-emerald-300 border border-emerald-500/50';
+                trafficTypeEl.innerHTML = `<span class="text-emerald-400">Voice Traffic (VLAN 20)</span>`;
+                frameSrc.textContent = 'PHN-MAC';
+                payload.textContent = 'RTP/UDP';
+
+                tagBox.className = 'col-span-4 bg-emerald-500/25 border border-emerald-400 rounded-lg py-1.5 px-1 transition-all';
+                tagTitle.textContent = 'TPID: 0x8100 (TAGGED)';
+                tagTitle.className = 'text-emerald-300 text-[8px]';
+                tagValue.textContent = 'VID: 20 | CoS: 5';
+                tagValue.className = 'text-emerald-100 font-bold truncate';
+
+                if (pkt.stage === 1) {
+                    currentHopEl.textContent = 'IP Phone → Fa0/1 (Access)';
+                    statusText.innerHTML = `<span class="text-emerald-400 font-bold">১. IP Phone → Switch 1 (Fa0/1 Access):</span> CDP/LLDP-এর মাধ্যমে Voice VLAN জেনে আইপি ফোন শুরু থেকেই প্যাকেটে <strong>802.1Q Tag (VLAN 20, CoS 5)</strong> লাগিয়ে Access পোর্টে পাঠাচ্ছে!`;
+                } else {
+                    currentHopEl.textContent = 'Trunk Link (Gi0/1)';
+                    statusText.innerHTML = `<span class="text-emerald-400 font-bold">২. Switch 1 → Switch 2 (Gi0/1 Trunk):</span> উচ্চ অগ্রাধিকার (<strong>QoS CoS 5</strong>) নিয়ে Voice ফ্রেমটি <strong>VLAN 20 ট্যাগসহ</strong> Trunk পোর্ট দিয়ে Switch-2 তে যাচ্ছে।`;
+                }
+            }
+        }
+
+        // Camera View Presets
+        function setCameraView(preset) {
+            document.querySelectorAll('.cam-btn').forEach(btn => {
+                btn.classList.remove('bg-sky-500/20', 'text-sky-300', 'border-sky-400/40');
+                btn.classList.add('text-slate-300', 'border-transparent');
+            });
+            const activeBtn = document.getElementById(`cam-${preset}`);
+            if (activeBtn) {
+                activeBtn.classList.add('bg-sky-500/20', 'text-sky-300', 'border-sky-400/40');
+                activeBtn.classList.remove('text-slate-300', 'border-transparent');
+            }
+
+            isCameraTransitioning = true;
+            if (preset === 'overview') {
+                targetCamPos.set(0, 7.5, 13.5);
+                targetLookAt.set(0, 0.8, 0);
+            } else if (preset === 'access') {
+                targetCamPos.set(-2.2, 3.6, 5.8);
+                targetLookAt.set(-1.6, 0.5, 0.3);
+            } else if (preset === 'trunk') {
+                targetCamPos.set(4.5, 3.6, 5.8);
+                targetLookAt.set(4.5, 0.5, 0);
+            } else if (preset === 'ports_closeup') {
+                targetCamPos.set(1.5, 4.4, 7.2);
+                targetLookAt.set(1.5, 0.5, 0.2);
+            }
+        }
+
+        function toggleConfigModal(show, highlightCommands = false) {
+            const modal = document.getElementById('ios-modal');
+            const accessLine = document.getElementById('ios-line-access');
+            const voiceLine = document.getElementById('ios-line-voice');
+
+            if (show) {
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+                if (highlightCommands) {
+                    accessLine.classList.add('ios-highlight-line');
+                    voiceLine.classList.add('ios-highlight-line');
+                } else {
+                    accessLine.classList.remove('ios-highlight-line');
+                    voiceLine.classList.remove('ios-highlight-line');
+                }
+            } else {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+                accessLine.classList.remove('ios-highlight-line');
+                voiceLine.classList.remove('ios-highlight-line');
+            }
+        }
+
+        // =========================================================================
+        // AUTOMATED 68-SECOND DEMO VIDEO SEQUENCE CONTROLLER
+        // =========================================================================
+        function toggleDemoSequence() {
+            if (isDemoRunning) {
+                stopDemoSequence();
+            } else {
+                startDemoSequence();
+            }
+        }
+
+        function startDemoSequence() {
+            // Stop auto-loop if active & clear existing packets
+            if (isAutoLoop) toggleAutoLoop();
+            clearAllActivePackets();
+            toggleConfigModal(false);
+
+            isDemoRunning = true;
+            demoStartTime = performance.now();
+            demoTriggeredEvents.clear();
+
+            const btn = document.getElementById('demo-seq-btn');
+            const icon = document.getElementById('demo-seq-icon');
+            const label = document.getElementById('demo-seq-label');
+            const timer = document.getElementById('demo-timer');
+
+            btn.className = 'flex items-center gap-2 px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-lg shadow-rose-500/30 border border-rose-300/30 transition cursor-pointer';
+            icon.className = 'fa-solid fa-stop';
+            label.textContent = 'Stop Demo';
+            timer.classList.remove('hidden');
+            timer.textContent = '0:00 / 1:08';
+
+            document.getElementById('demo-subtitle-bar').classList.remove('hidden');
+        }
+
+        function stopDemoSequence() {
+            isDemoRunning = false;
+            demoTriggeredEvents.clear();
+
+            const btn = document.getElementById('demo-seq-btn');
+            const icon = document.getElementById('demo-seq-icon');
+            const label = document.getElementById('demo-seq-label');
+            const timer = document.getElementById('demo-timer');
+
+            btn.className = 'flex items-center gap-2 px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 via-sky-600 to-emerald-600 hover:from-indigo-500 hover:to-emerald-500 text-white font-bold text-xs shadow-lg shadow-sky-500/25 border border-white/20 transition cursor-pointer';
+            icon.className = 'fa-solid fa-play';
+            label.textContent = 'Play Demo Sequence (68s)';
+            timer.classList.add('hidden');
+
+            hideTitleOverlay();
+            document.getElementById('demo-subtitle-bar').classList.add('hidden');
+            document.body.classList.remove('cinematic-vignette');
+            toggleConfigModal(false);
+        }
+
+        function clearAllActivePackets() {
+            for (let i = activePackets.length - 1; i >= 0; i--) {
+                const pkt = activePackets[i];
+                pkt.group.remove(pkt.group.children[2]);
+                scene.remove(pkt.group);
+            }
+            activePackets = [];
+        }
+
+        function showTitleOverlay(badge, mainTitle, subTitle) {
+            const overlay = document.getElementById('demo-title-overlay');
+            document.getElementById('demo-title-badge').innerHTML = badge;
+            document.getElementById('demo-title-main').textContent = mainTitle;
+            document.getElementById('demo-title-sub').textContent = subTitle;
+            overlay.classList.remove('hidden');
+            overlay.classList.add('flex');
+        }
+
+        function hideTitleOverlay() {
+            const overlay = document.getElementById('demo-title-overlay');
+            overlay.classList.add('hidden');
+            overlay.classList.remove('flex');
+        }
+
+        function setDemoSubtitle(stepLabel, text) {
+            document.getElementById('demo-step-label').textContent = stepLabel;
+            document.getElementById('demo-subtitle-text').textContent = text;
+        }
+
+        function triggerDemoOnce(key, fn) {
+            if (!demoTriggeredEvents.has(key)) {
+                demoTriggeredEvents.add(key);
+                fn();
+            }
+        }
+
+        function updateDemoSequence() {
+            if (!isDemoRunning) return;
+
+            const t = (performance.now() - demoStartTime) / 1000;
+            const clampedT = Math.min(t, DEMO_TOTAL_SECONDS);
+            const mins = Math.floor(clampedT / 60);
+            const secs = Math.floor(clampedT % 60).toString().padStart(2, '0');
+            document.getElementById('demo-timer').textContent = `${mins}:${secs} / 1:08`;
+
+            // -----------------------------------------------------------------
+            // 1. [0:00 - 0:05] OPENING (5 seconds)
+            // -----------------------------------------------------------------
+            if (t < 5) {
+                triggerDemoOnce('scene1_init', () => {
+                    setCameraView('overview');
+                    showTitleOverlay(
+                        '<i class="fa-solid fa-cube"></i> 3D Network Visualization',
+                        'Understanding Voice & Data VLAN through 3D Visualization',
+                        'Access Port (Fa0/1) • 802.1Q Trunking (Gi0/1) • QoS Priority'
+                    );
+                    setDemoSubtitle('SCENE 1 / 7 • OPENING (0:00 - 0:05)', 'Understanding Voice & Data VLAN through 3D Visualization');
+                });
+                // Gentle cinematic orbit in Overview
+                const angle = t * 0.22;
+                camera.position.set(Math.sin(angle) * 13.5, 7.5, Math.cos(angle) * 13.5);
+                controls.target.set(0, 0.8, 0);
+            }
+            // -----------------------------------------------------------------
+            // 2. [0:05 - 0:15] PHYSICAL TOPOLOGY (10 seconds)
+            // -----------------------------------------------------------------
+            else if (t < 15) {
+                triggerDemoOnce('scene2_init', () => {
+                    hideTitleOverlay();
+                    setCameraView('overview');
+                    setDemoSubtitle('SCENE 2 / 7 • PHYSICAL TOPOLOGY (0:05 - 0:15)', 'Physical Topology: PC → IP Phone → Switch 1 (Fa0/1) → Switch 2 (Gi0/1)');
+                });
+                if (t >= 6.0) triggerDemoOnce('topo_pc', () => createPulseEffect(new THREE.Vector3(NODES.pc.x, 0.1, NODES.pc.z), 0x3b82f6));
+                if (t >= 7.5) triggerDemoOnce('topo_phone', () => createPulseEffect(new THREE.Vector3(NODES.phone.x, 0.1, NODES.phone.z), 0x10b981));
+                if (t >= 9.0) triggerDemoOnce('topo_sw1', () => createPulseEffect(new THREE.Vector3(NODES.sw1.x, 0.1, NODES.sw1.z), 0x0ea5e9));
+                if (t >= 10.5) triggerDemoOnce('topo_sw2', () => createPulseEffect(new THREE.Vector3(NODES.sw2.x, 0.1, NODES.sw2.z), 0x8b5cf6));
+                if (t >= 11.5) {
+                    triggerDemoOnce('topo_ports_zoom', () => {
+                        setCameraView('ports_closeup');
+                        createPulseEffect(PORTS.sw1Fa01, 0xfacc15);
+                        createPulseEffect(PORTS.sw1Gi01, 0xf43f5e);
+                        setDemoSubtitle('SCENE 2 / 7 • PORT INSPECTION', 'Inspecting Multi-VLAN Access Port (Fa0/1) & 802.1Q Trunk Link (Gi0/1)');
+                    });
+                }
+            }
+            // -----------------------------------------------------------------
+            // 3. [0:15 - 0:27] DATA PACKET FLOW (12 seconds)
+            // -----------------------------------------------------------------
+            else if (t < 27) {
+                triggerDemoOnce('scene3_init', () => {
+                    setCameraView('access');
+                    setDemoSubtitle('SCENE 3 / 7 • DATA PACKET FLOW (0:15 - 0:27)', 'Data Traffic (VLAN 10): Untagged on Access Port (Fa0/1), 802.1Q Tagged on Trunk (Gi0/1)');
+                    spawnPacket('data');
+                });
+                if (t >= 20.5) {
+                    triggerDemoOnce('scene3_trunk_cam', () => {
+                        setCameraView('trunk');
+                    });
+                }
+                if (t >= 22.0) {
+                    triggerDemoOnce('scene3_data_repeat', () => {
+                        spawnPacket('data');
+                    });
+                }
+            }
+            // -----------------------------------------------------------------
+            // 4. [0:27 - 0:39] VOICE PACKET FLOW (12 seconds)
+            // -----------------------------------------------------------------
+            else if (t < 39) {
+                triggerDemoOnce('scene4_init', () => {
+                    setCameraView('access');
+                    setDemoSubtitle('SCENE 4 / 7 • VOICE PACKET FLOW (0:27 - 0:39)', 'Voice Traffic (VLAN 20): Tagged directly by IP Phone with 802.1Q VLAN 20 & CoS 5 Priority');
+                    spawnPacket('voice');
+                });
+                if (t >= 31.5) {
+                    triggerDemoOnce('scene4_trunk_cam', () => {
+                        setCameraView('trunk');
+                    });
+                }
+                if (t >= 33.5) {
+                    triggerDemoOnce('scene4_voice_repeat', () => {
+                        spawnPacket('voice');
+                    });
+                }
+            }
+            // -----------------------------------------------------------------
+            // 5. [0:39 - 0:51] SIMULTANEOUS TRAFFIC (12 seconds)
+            // -----------------------------------------------------------------
+            else if (t < 51) {
+                triggerDemoOnce('scene5_init', () => {
+                    setCameraView('ports_closeup');
+                    setDemoSubtitle('SCENE 5 / 7 • SIMULTANEOUS TRAFFIC (0:39 - 0:51)', 'Simultaneous Traffic: Voice & Data share the same physical links without collision');
+                    spawnBoth();
+                });
+                if (t >= 45.0) {
+                    triggerDemoOnce('scene5_both_repeat', () => {
+                        spawnBoth();
+                    });
+                }
+            }
+            // -----------------------------------------------------------------
+            // 6. [0:51 - 1:03] CISCO CONFIGURATION (12 seconds)
+            // -----------------------------------------------------------------
+            else if (t < 63) {
+                triggerDemoOnce('scene6_init', () => {
+                    setCameraView('overview');
+                    setDemoSubtitle('SCENE 6 / 7 • CISCO IOS CONFIGURATION (0:51 - 1:03)', 'Cisco IOS Configuration: Assigning Access VLAN 10 & Voice VLAN 20 on Fa0/1');
+                    toggleConfigModal(true, true);
+                });
+            }
+            // -----------------------------------------------------------------
+            // 7. [1:03 - 1:08] CLOSING (5 seconds)
+            // -----------------------------------------------------------------
+            else if (t < DEMO_TOTAL_SECONDS) {
+                triggerDemoOnce('scene7_init', () => {
+                    toggleConfigModal(false);
+                    setCameraView('overview');
+                    document.body.classList.add('cinematic-vignette');
+                    showTitleOverlay(
+                        '<i class="fa-solid fa-check-circle text-emerald-400"></i> Simulation Complete',
+                        'Visualize. Understand. Configure.',
+                        '3D Voice & Data VLAN Network Architecture'
+                    );
+                    setDemoSubtitle('SCENE 7 / 7 • CLOSING (1:03 - 1:08)', 'Visualize. Understand. Configure.');
+                });
+            }
+            // End of 68-second sequence
+            else {
+                stopDemoSequence();
+            }
+        }
+        // =========================================================================
+
+        function copyIOSConfig() {
+            const codeText = document.getElementById('ios-code').innerText;
+            const textarea = document.createElement('textarea');
+            textarea.value = codeText;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+
+            const copyBtn = document.getElementById('copy-btn');
+            copyBtn.innerHTML = `<i class="fa-solid fa-check text-emerald-400 mr-1"></i>Copied!`;
+            setTimeout(() => {
+                copyBtn.innerHTML = `<i class="fa-regular fa-copy mr-1"></i>Copy`;
+            }, 2000);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            labelRenderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Main 60FPS Animation Loop
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+            const elapsed = clock.getElapsedTime();
+
+            // Update Automated 68s Demo Sequence Timeline if active
+            updateDemoSequence();
+
+            // Smooth Camera Preset Transition
+            if (isCameraTransitioning) {
+                camera.position.lerp(targetCamPos, 0.06);
+                controls.target.lerp(targetLookAt, 0.06);
+                if (camera.position.distanceTo(targetCamPos) < 0.05) {
+                    isCameraTransitioning = false;
+                }
+            }
+
+            // Blink Switch Activity LEDs
+            switchLeds.forEach((led, idx) => {
+                led.visible = Math.sin(elapsed * 8 + idx * 1.7) > -0.3;
+            });
+
+            // Animate Pulse Rings
+            for (let i = pulseRings.length - 1; i >= 0; i--) {
+                const p = pulseRings[i];
+                p.age += delta;
+                const scale = 1 + p.age * 4.5;
+                p.mesh.scale.set(scale, scale, 1);
+                p.mesh.material.opacity = Math.max(0, 1 - p.age * 1.6);
+                if (p.age > 0.65) {
+                    scene.remove(p.mesh);
+                    pulseRings.splice(i, 1);
+                }
+            }
+
+            // Update Active 3D Packets
+            for (let i = activePackets.length - 1; i >= 0; i--) {
+                const pkt = activePackets[i];
+                pkt.progress += delta * pkt.speed;
+                pkt.coreMesh.rotation.y += delta * 3;
+                pkt.coreMesh.rotation.x += delta * 1.5;
+
+                // Determine current curve segment
+                let currentCurve = curvePcToPhone;
+                if (pkt.stage === 1) currentCurve = curvePhoneToSw1;
+                if (pkt.stage === 2) currentCurve = curveSw1ToSw2;
+
+                if (pkt.progress >= 1) {
+                    pkt.progress = 0;
+                    pkt.stage++;
+
+                    if (pkt.stage === 1) {
+                        // Data packet passed through IP Phone PC-Port -> SW-Port (Still Untagged!)
+                        createPulseEffect(PORTS.phoneSwPort, 0x3b82f6);
+                        updateInspector(pkt);
+                    } else if (pkt.stage === 2) {
+                        // Arrived at Switch 1! Switch 1 tags Data packet with 802.1Q VLAN 10 before Trunk
+                        if (pkt.type === 'data' && !pkt.tagged) {
+                            pkt.tagged = true;
+                            pkt.tagMesh.visible = true;
+                            pkt.badgeDiv.className = 'packet-badge badge-data-tagged';
+                            pkt.badgeDiv.innerHTML = `<i class="fa-solid fa-tag text-amber-300"></i> 802.1Q: VLAN 10 (Tagged)`;
+                            createPulseEffect(PORTS.sw1Gi01, 0xfbbf24);
+                        } else {
+                            createPulseEffect(PORTS.sw1Gi01, 0x10b981);
+                        }
+                        updateInspector(pkt);
+                    } else if (pkt.stage > 2) {
+                        // Reached Switch 2 Destination
+                        createPulseEffect(PORTS.sw2Gi01, pkt.type === 'voice' ? 0x10b981 : 0x3b82f6);
+                        pkt.group.remove(pkt.group.children[2]); // remove CSS2DObject
+                        scene.remove(pkt.group);
+                        activePackets.splice(i, 1);
+                        continue;
+                    }
+                }
+
+                // Move packet along curve with slight vertical hover
+                const pos = currentCurve.getPointAt(Math.min(pkt.progress, 1));
+                pkt.group.position.set(pos.x, pos.y + 0.25, pos.z);
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+            labelRenderer.render(scene, camera);
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
