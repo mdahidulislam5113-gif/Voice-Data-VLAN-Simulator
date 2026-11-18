@@ -12,7 +12,7 @@ An interactive 3D network simulation that demonstrates how Voice VLAN and Data V
 - Data VLAN 10 and Voice VLAN 20
 - 802.1Q VLAN tagging demonstration
 - Ethernet Frame Inspector
-- CoS value visualization
+- QoS value visualization
 - Cisco IOS configuration reference
 - Interactive packet-flow animations
 
